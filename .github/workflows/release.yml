@@ -5,8 +5,8 @@ on:
       version:
         description: 'Release version to build and upload (e.g. "v9.8.7")'
         required: true
-      dryrun:
-        description: 'Dryrun: Do not create release'
+      buildonly:
+        description: 'Build only: Do not create release'
         required: true
         default: "true"  # 'choice' type requires string value
         type: choice
@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   check:
@@ -34,22 +35,20 @@ jobs:
         echo
         echo "version=$VERSION" >> $GITHUB_OUTPUT
     - name: Determine release
-      id: needs-release
+      id: buildonly
       run: |
-        # The 'release' trigger will not have a 'dryrun' input set. Handle
+        # The 'tag' trigger will not have a 'buildonly' input set. Handle
         # this case in a readable/maintainable way.
-        if [[ -z "${{ inputs.dryrun }}" ]]
+        if [[ -z "${{ inputs.buildonly }}" ]]
         then
-          echo "dryrun=false" >> $GITHUB_OUTPUT
+          echo "buildonly=false" >> $GITHUB_OUTPUT
         else
-          echo "dryrun=${{ inputs.dryrun }}" >> $GITHUB_OUTPUT
+          echo "buildonly=${{ inputs.buildonly }}" >> $GITHUB_OUTPUT
         fi
         echo "::notice::This workflow execution will not create a release. It will be build-only."
-
-        if ${{ steps.getversion.outputs.version }}
     outputs:
       version: ${{ steps.getversion.outputs.version }}
-      needs-release: ${{ steps.needs-release.outputs.needs-release }}
+      buildonly: ${{ steps.buildonly.outputs.buildonly }}
 
   build-artifacts:
     name: Build Artifacts
@@ -74,8 +73,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: release-artifacts
-        path: |
-          release/podman-remote-release-windows_amd64.zip
+        path: release/*
 
   mac-pkg:
     name: Build MacOS pkginstaller
@@ -126,7 +124,6 @@ jobs:
     name: Build Windows Installer
     runs-on: windows-latest
     needs: [check, build-artifacts]
-    if: ${{ needs.check.outputs.needs-release }}
     env:
       FETCH_BASE_URL: ${{ github.server_url }}/${{ github.repository }}
     steps:
@@ -134,7 +131,6 @@ jobs:
       id: getversion
       run: |
         $version = "${{ needs.check.outputs.version }}"
-        }
         if ($version[0] -eq "v") {
               $version = $version.Substring(1)
           }
@@ -188,38 +184,27 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-24.04
+    if: ${{ needs.check.outputs.buildonly }} == 'false'
     needs: [check, build-artifacts, mac-pkg, windows-installer]
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
     steps:
-    - name: Check dryrun
-      id: actual_dryrun
-      run: |
-        # The 'release' trigger will not have a 'dryrun' input set. Handle
-        # this case in a readable/maintainable way.
-        if [[ -z "${{ inputs.dryrun }}" ]]
-        then
-          echo "dryrun=false" >> $GITHUB_OUTPUT
-        else
-          echo "dryrun=${{ inputs.dryrun }}" >> $GITHUB_OUTPUT
-        fi
-        echo "::notice::This workflow execution will be a dry-run: $dryrun"
-    - name: Determine Version
-      id: getversion
-      run: |
-        if [[ -z "${{ inputs.version }}" ]]
-        then
-              VERSION=${{ github.event.release.tag_name }}
-        else
-              VERSION=${{ inputs.version }}
-        fi
-        echo
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
     - name: Get release notes
       run: |
-        curl https://raw.githubusercontent.com/containers/podman/refs/tags/${{steps.getversion.outputs.version}}/RELEASE_NOTES.md -o RELEASE_NOTES.md
-        ver="$(echo "${{steps.getversion.outputs.version}}" | sed -e "s/^v//" -e "s/-rc.*//")"
-        awk -v ver=$ver '/^## / { if (p) { exit }; if ($2 == ver) { p=1; next } } p' RELEASE_NOTES.md >> ${{steps.getversion.outputs.version}}-release-notes
+        curl -fL "https://raw.githubusercontent.com/containers/podman/refs/tags/$VERSION/RELEASE_NOTES.md" -o RELEASE_NOTES.md
+        ver="$(echo "$VERSION" | sed -e "s/^v//" -e "s/-rc.*//")"
+        releasenotes="$VERSION-release-notes.md"
+        awk -v ver=$ver '/^## / { if (p) { exit }; if ($2 == ver) { p=1; next } } p' RELEASE_NOTES.md > $releasenotes
+
+        if [[ -z $(grep '[^[:space:]]' $releasenotes) ]]; then
+          if [[ $VERSION != *-rc* ]]; then
+              echo "::notice:: Release does not have release notes"
+          else
+          echo "This is a release candidate of Podman v$ver. Full release notes will be available with a later RC." > $releasenotes
+          fi
+        fi
     - name: Get release notes
-      run: cat ${{steps.getversion.outputs.version}}-release-notes
+      run: cat $VERSION-release-notes.md
     - name: Download all artifacts
       uses: actions/download-artifact@v4
     - name: Show artifacts
@@ -230,24 +215,83 @@ jobs:
         sha256sum * > shasums
         popd
     - name: Display
-      if: ${{ needs.check.outputs.needs-release }}
       run: |
-        echo "version: ${{steps.getversion.outputs.version}}"
+        echo "version: $VERSION"
         echo
         echo "release notes:"
-        cat ${{steps.getversion.outputs.version}}-release-notes
+        cat ${{needs.check.outputs.version}}-release-notes.md
         echo
         cat release-artifacts/shasums
         ls -la release-artifacts
 
-        if [[ ${{steps.getversion.outputs.version}} == *-rc* ]] then
+        if [[ ${{needs.check.outputs.version}} == *-rc* ]]; then
           echo "Marking as pre-release, this is an RC"
         fi
+    - name: Create release check
+      if: ${{ needs.check.outputs.buildonly }} == 'false'
+      run: echo "A release is needed......."
     - name: Create release
       if: false
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        gh release create ${{steps.getversion.outputs.version}} \
+        if[[ $VERSION == *-rc* ]]; then
+          $RC="--prerelease"
+        fi
+        gh release create $VERSION \
           -t testing \
-          --notes-file ${{steps.getversion.outputs.version}} \
+          --notes-file $VERSION-release-notes.md \
           --verify-tag \
+          $RC \
           release-artifacts/*
+  notification:
+    name: Email notification
+    runs-on: ubuntu-24.04
+    needs: [check, release]
+    if: ${{ needs.check.outputs.buildonly }} == 'false'
+    steps:
+      - name: Format release email
+        id: format
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          if grep -Eq '.+-rc' <<<"$VERSION"
+          then
+            RC_PREFIX="candidate "
+          fi
+
+          echo "mail_subj=Podman ${RC_PREFIX}${VERSION} Released" >> $GITHUB_OUTPUT
+
+          cat <<EOF>email_body.txt
+          Hi all,
+
+          Podman ${RC_PREFIX}${VERSION} is now available.  You may view the full details at
+          https://github.com/${{ github.repository }}/releases/tag/$VERSION
+
+          Release ${RC_PREFIX}Notes:
+          --------------
+          EOF
+
+          echo ${{ secrets.GITHUB_TOKEN }} | gh auth login --with-token
+          gh release view $VERSION \
+            --repo ${{ github.repository }} --json=body --jq '.body' >> email_body.txt
+
+      # If job fails, permit operator to observe contents in case helpful.
+      - name: Provide release e-mail contents for examination
+        run: cat email_body.txt
+      - name: ggs
+        if: ${{ needs.check.outputs.buildonly }} == 'false'
+        run: "echo: norelease needed"
+
+      # - name: Send release notification e-mail
+      #   # Ref: https://github.com/dawidd6/action-send-mail
+      #   uses: dawidd6/action-send-mail@v3.12.0
+      #   with:
+      #     server_address: ${{secrets.ACTION_MAIL_SERVER}}
+      #     server_port: 465
+      #     username: ${{secrets.ACTION_MAIL_USERNAME}}
+      #     password: ${{secrets.ACTION_MAIL_PASSWORD}}
+      #     subject: ${{ steps.format.outputs.mail_subj }}
+      #     to: Podman List <podman@lists.podman.io>
+      #     from: ${{secrets.ACTION_MAIL_SENDER}}
+      #     body: file://./email_body.txt
