@@ -34,6 +34,7 @@ jobs:
         fi
         echo
         echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "::notice::Building $VERSION"
     - name: Determine release
       id: buildonly
       run: |
@@ -45,7 +46,7 @@ jobs:
         else
           echo "buildonly=${{ inputs.buildonly }}" >> $GITHUB_OUTPUT
         fi
-        echo "::notice::This workflow execution will not create a release. It will be build-only."
+        echo "::notice::This will be build-only: $buildonly"
     outputs:
       version: ${{ steps.getversion.outputs.version }}
       buildonly: ${{ steps.buildonly.outputs.buildonly }}
@@ -58,7 +59,7 @@ jobs:
     - name: Checkout Version
       uses: actions/checkout@v4
       with:
-        ref: ${{ needs.check.outputs.version }}
+        ref: ${{needs.check.outputs.version}}
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
@@ -95,7 +96,7 @@ jobs:
     - name: Checkout Version
       uses: actions/checkout@v4
       with:
-        ref: ${{ needs.check.outputs.version }}
+        ref: ${{needs.check.outputs.version}}
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
@@ -184,14 +185,17 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-24.04
-    if: ${{ needs.check.outputs.buildonly }} == 'false'
+    if: ${{ needs.check.outputs.buildonly}} == 'false'
     needs: [check, build-artifacts, mac-pkg, windows-installer]
     env:
-      VERSION: ${{ needs.check.outputs.version }}
+      VERSION: ${{needs.check.outputs.version}}
     steps:
+    - name: Checkout Version
+      uses: actions/checkout@v4
+      with:
+        ref: ${{needs.check.outputs.version}}
     - name: Get release notes
       run: |
-        curl -fL "https://raw.githubusercontent.com/containers/podman/refs/tags/$VERSION/RELEASE_NOTES.md" -o RELEASE_NOTES.md
         ver="$(echo "$VERSION" | sed -e "s/^v//" -e "s/-rc.*//")"
         releasenotes="$VERSION-release-notes.md"
         awk -v ver=$ver '/^## / { if (p) { exit }; if ($2 == ver) { p=1; next } } p' RELEASE_NOTES.md > $releasenotes
@@ -199,6 +203,7 @@ jobs:
         if [[ -z $(grep '[^[:space:]]' $releasenotes) ]]; then
           if [[ $VERSION != *-rc* ]]; then
               echo "::notice:: Release does not have release notes"
+              exit 1
           else
           echo "This is a release candidate of Podman v$ver. Full release notes will be available with a later RC." > $releasenotes
           fi
@@ -214,32 +219,15 @@ jobs:
         pushd release-artifacts
         sha256sum * > shasums
         popd
-    - name: Display
-      run: |
-        echo "version: $VERSION"
-        echo
-        echo "release notes:"
-        cat ${{needs.check.outputs.version}}-release-notes.md
-        echo
-        cat release-artifacts/shasums
-        ls -la release-artifacts
-
-        if [[ ${{needs.check.outputs.version}} == *-rc* ]]; then
-          echo "Marking as pre-release, this is an RC"
-        fi
-    - name: Create release check
-      if: ${{ needs.check.outputs.buildonly }} == 'false'
-      run: echo "A release is needed......."
     - name: Create release
-      if: false
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        if[[ $VERSION == *-rc* ]]; then
-          $RC="--prerelease"
+        if [[ $VERSION == *-rc* ]]; then
+          RC="--prerelease"
         fi
         gh release create $VERSION \
-          -t testing \
+          -t $VERSION \
           --notes-file $VERSION-release-notes.md \
           --verify-tag \
           $RC \
@@ -279,19 +267,16 @@ jobs:
       # If job fails, permit operator to observe contents in case helpful.
       - name: Provide release e-mail contents for examination
         run: cat email_body.txt
-      - name: ggs
-        if: ${{ needs.check.outputs.buildonly }} == 'false'
-        run: "echo: norelease needed"
-
-      # - name: Send release notification e-mail
-      #   # Ref: https://github.com/dawidd6/action-send-mail
-      #   uses: dawidd6/action-send-mail@v3.12.0
-      #   with:
-      #     server_address: ${{secrets.ACTION_MAIL_SERVER}}
-      #     server_port: 465
-      #     username: ${{secrets.ACTION_MAIL_USERNAME}}
-      #     password: ${{secrets.ACTION_MAIL_PASSWORD}}
-      #     subject: ${{ steps.format.outputs.mail_subj }}
-      #     to: Podman List <podman@lists.podman.io>
-      #     from: ${{secrets.ACTION_MAIL_SENDER}}
-      #     body: file://./email_body.txt
+      - name: Send release notification e-mail
+        if: false
+        # Ref: https://github.com/dawidd6/action-send-mail
+        uses: dawidd6/action-send-mail@v3.12.0
+        with:
+          server_address: ${{secrets.ACTION_MAIL_SERVER}}
+          server_port: 465
+          username: ${{secrets.ACTION_MAIL_USERNAME}}
+          password: ${{secrets.ACTION_MAIL_PASSWORD}}
+          subject: ${{ steps.format.outputs.mail_subj }}
+          to: Podman List <podman@lists.podman.io>
+          from: ${{secrets.ACTION_MAIL_SENDER}}
+          body: file://./email_body.txt
