@@ -1,0 +1,16 @@
+name: "check target"
+on:
+  check_suite:  # ALWAYS triggered from the default branch
+    types:
+        - completed
+
+jobs:
+  triage:
+    permissions:
+      contents: read
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+    - name: Run
+        run: |
+          echo "check target"
