@@ -1,0 +1,12 @@
+name: Dummy CI
+on:
+  pull_request:
+    branches:
+      - main
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run "tests"
+        run: |
+          sleep 100
