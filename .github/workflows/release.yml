@@ -11,16 +11,11 @@ on:
         required: true
       buildonly:
         description: 'Build only: Do not create release'
-        required: true
         default: "true"  # 'choice' type requires string value
         type: choice
         options:
           - "true"  # Must be quoted string, boolean value not supported.
           - "false"
-
-permissions:
-  contents: write
-  actions: write
 
 jobs:
   check:
@@ -202,6 +197,8 @@ jobs:
     runs-on: ubuntu-24.04
     if: needs.check.outputs.buildonly == 'false'
     needs: [check, build-artifacts, mac-pkg, windows-installer]
+    permissions:
+      contents: write
     env:
       VERSION: ${{needs.check.outputs.version}}
     steps:
