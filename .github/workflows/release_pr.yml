@@ -1,8 +1,9 @@
 # https://github.com/actions/labeler
-name: "Pull Request Labeler"
+name: "release pr"
 on:
-- pull_request_target
-
+  pull_request_target:
+    paths:
+    - 'version/rawversion/version.go'
 jobs:
   triage:
     permissions:
@@ -10,6 +11,5 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/labeler@v5
-      with:
-        repo-token: "${{ secrets.GITHUB_TOKEN }}"
+    - name: wheeeee
+      run: echo "runrunrun"
