@@ -5,11 +5,22 @@ on:
     paths:
     - 'version/rawversion/version.go'
 jobs:
-  triage:
+  wait_for_copr:
     permissions:
       contents: read
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
+
+    - name: Install deps
+      # Do not run on scheduled nightly builds
+      run: |
+        pip3 install fedora-distro-aliases
+        pip3 install git+https://github.com/packit/wait-for-copr.git@main
     - name: wheeeee
-      run: echo "runrunrun"
+      run: |
+        echo "runrunrun"
+        resolve-fedora-aliases fedora-latest-stable
+        echo ${{ github.event.number }}
+        wait-for-copr --help
+
