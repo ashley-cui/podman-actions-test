@@ -10,22 +10,87 @@ jobs:
       contents: read
       pull-requests: write
     runs-on: ubuntu-latest
+    env:
+      SHA: ${{github.event.pull_request.head.sha}}
+      UPSTREAM_MACHINE_OS: "ashley-cui/podman-machine-os"
+      PODMAN_REPO: "ashley-cui/podman-actions-test"
+
     steps:
 
-    - name: Install deps
-      # Do not run on scheduled nightly builds
-      run: |
-        pip3 install fedora-distro-aliases
-        pip3 install git+https://github.com/packit/wait-for-copr.git@main
+    # - name: Install deps
+    #   run: |
+    #     pip3 install git+https://github.com/packit/wait-for-copr.git@main
 
-    - name: wheeeee
-      run: |
-        echo "runrunrun"
-        resolve-fedora-aliases fedora-latest-stable
-        echo ${{ github.event.number }}
-        echo ${{github.event.pull_request.head.sha}}
-        SHA=${{github.event.pull_request.head.sha}}
-        echo ${SHA::9}
-        echo "ksafjksadlkjsdjfjkasdjkfh"
-        wait-for-copr --help
 
+    # - name: Wait for COPR
+    #   run: |
+    #     wait-for-copr \
+    #     --owner packit \
+    #     --project ashley-cui-podman-actions-test-${{github.event.number}} \
+    #     podman \
+    #     ${SHA::9}
+    - name: Get Version
+      id: getversion
+      run: |
+        echo $SHA
+        echo $PODMAN_REPO
+        VERSION=$(curl "https://raw.githubusercontent.com/$PODMAN_REPO/$SHA/version/rawversion/version.go" | sed -n 's/^const RawVersion = \"\(.*\)\"$/\1/p')
+        echo $VERSION
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/checkout@v4
+      with:
+        repository: containers/podman-machine-os
+    - name: Bump version
+      run: |
+        echo ${{steps.getversion.outputs.version}}
+        sed -i 's/export PODMAN_VERSION=".*"/export PODMAN_VERSION="${{steps.getversion.outputs.version}}"/g' podman-rpm-info-vars.sh
+        sed -i 's/export PODMAN_PR_NUM=".*"/export PODMAN_PR_NUM="${{github.event.number}}"/g' podman-rpm-info-vars.sh
+        echo "Updated file:"
+        cat podman-rpm-info-vars.sh
+
+    # - name: Check open PRs
+    #   id: checkpr
+    #   run: |
+    #     prs=$(gh pr list \
+    #       --repo $UPSTREAM_MACHINE_OS \
+    #       --head bumpbranch="v${{steps.getversion.outputs.version}}-pr${{github.event.number}}" \
+    #       --state open \
+    #       --json title \
+    #       --jq 'length')
+    #     if ((prs > 0)); then
+    #       echo "SKIPPING: PR already exists. Re-pushing to re-trigger build."
+    #     else
+    #       echo "openpr=true" >> "$GITHUB_OUTPUT"
+    #     fi
+    #   env:
+    #     GH_TOKEN: ${{ secrets.PODMANBOT_TOKEN }}
+    #   - name: Push
+    #     if: >-
+    #         steps.getversion.outputs.notRC == 'true' &&
+    #         steps.checkversion.outputs.needsUpdate == 'true' &&
+    #         steps.checkpr.outputs.prexists == 'false'
+    #     run: |
+    #       # Make committer the user who triggered the action, either through cutting a release or manual trigger
+    #       # GitHub gives everyone a noreply email associated with their account, use that email for the sign-off
+    #       git config --local user.name ${{ github.actor }}
+    #       git config --local user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+    #       bumpbranch="v${{ steps.getversion.outputs.version }}-pr${{github.event.number}}"
+    #       git checkout -b $bumpbranch
+    #       git add static/data/global.ts
+    #       git commit --signoff -m "Bump Podman to v${{ steps.getversion.outputs.version }}"
+    #       git remote -v
+    #       git remote add podmanbot https://github.com/podmanbot/podman.io
+    #       git push -f podmanbot "+$bumpbranch"
+
+
+    #    - name: Open PR
+    #     if: steps.checkpr.outputs.openpr == 'true'
+    #     run: |
+    #       gh pr create \
+    #         --title "Bump Podman to v${{ steps.getversion.outputs.version }}" \
+    #         --body  "Bump Podman to v${{ steps.getversion.outputs.version }}" \
+    #         --head "podmanbot:$bumpbranch" \
+    #         --base "main" -R $UPSTREAM_MACHINE_OS
+    #     env:
+    #       GH_TOKEN: ${{ secrets.PODMANBOT_TOKEN }}
