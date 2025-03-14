@@ -17,6 +17,7 @@ jobs:
 
     steps:
 
+
     # - name: Install deps
     #   run: |
     #     pip3 install git+https://github.com/packit/wait-for-copr.git@main
@@ -32,15 +33,25 @@ jobs:
     - name: Get Version
       id: getversion
       run: |
-        echo $SHA
-        echo $PODMAN_REPO
         VERSION=$(curl "https://raw.githubusercontent.com/$PODMAN_REPO/$SHA/version/rawversion/version.go" | sed -n 's/^const RawVersion = \"\(.*\)\"$/\1/p')
-        echo $VERSION
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+    - name: Check branch
+      run: |
+        echo ${{github.base_ref}}
+
     - uses: actions/checkout@v4
+      id: checkout
       with:
-        repository: containers/podman-machine-os
+        repository: $UPSTREAM_MACHINE_OS
+        ref: ${{github.base_ref}}
+
+    - name: Warn remote branch
+      if: ${{ failure() }} && steps.checkout.outcome == "failure"
+      run: |
+        echo "::error Upstream branch checkout failed. This may be due to the release branch, not existing upstream."
+        echo "::error If this is the case, push a ${{github.base_ref}} branch in $UPSTREAM_MACHINE_OS, then re-run this task."
+
     - name: Bump version
       run: |
         echo ${{steps.getversion.outputs.version}}
