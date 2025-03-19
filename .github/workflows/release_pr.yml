@@ -2,57 +2,65 @@
 name: "release pr"
 on:
   pull_request_target:
-    # paths:
-    # - 'version/rawversion/version.go'
+    paths:
+    - 'version/rawversion/version.go'
 jobs:
-  wait_for_copr:
-    permissions:
-      contents: read
-      pull-requests: write
+  yesyesyes:
     runs-on: ubuntu-latest
-    env:
-      SHA: ${{github.event.pull_request.head.sha}}
-      UPSTREAM_MACHINE_OS: "ashley-cui/podman-machine-os"
-      PODMAN_REPO: "ashley-cui/podman-actions-test"
+    # permissions:
+    #   contents: read
+    #   issues: write
+    #   pull-requests: write
+  # runs-on: ubuntu-latest
+    # env:
+    #   SHA: ${{github.event.pull_request.head.sha}}
+    #   UPSTREAM_MACHINE_OS: "ashley-cui/podman-machine-os"
+    #   PODMAN_REPO: "ashley-cui/podman-actions-test"
 
     steps:
-
-
-    # - name: Install deps
-    #   run: |
-    #     pip3 install git+https://github.com/packit/wait-for-copr.git@main
-
-
-    # - name: Wait for COPR
-    #   run: |
-    #     wait-for-copr \
-    #     --owner packit \
-    #     --project ashley-cui-podman-actions-test-${{github.event.number}} \
-    #     podman \
-    #     ${SHA::9}
     - name: Get Version
       id: getversion
       run: |
         VERSION=$(curl "https://raw.githubusercontent.com/$PODMAN_REPO/$SHA/version/rawversion/version.go" | sed -n 's/^const RawVersion = \"\(.*\)\"$/\1/p')
+        # ignore -dev version bumps unless on main
+        if [[ ${{github.base_ref}} != "main" ]] && [[ $VERSION == *-dev ]] ; then
+          echo "::warn SKIPPING: dev bump not on main"
+        else if [[ ${{github.base_ref}} == *-rhel ]]
+          echo "::warn SKIPPING: rhel branch"
+        fi
+
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-    - name: Check branch
+    - name: check remote branch
+      if: steps.getversion.outputs.update == 'true'
       run: |
-        echo ${{github.base_ref}}
+        if ! (curl -s https://api.github.com/repos/$UPSTREAM_MACHINE_OS/branches| jq -e --arg branch "${{github.base_ref}}" '.[] | select(.name==$branch)') ; then
+          echo "::error Release branch does not exist."
+          echo "::error Please push $branch to $UPSTREAM_MACHINE_OS, then re-run this task."
+          exit 1
+        fi
+    - name: label pr
+      run: |
+        gh pr edit --add-label do-not-merge/wait-machine-os-build ${{github.event.number}}
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_REPO: ${{ github.repository }}
+
+    # - name: Install deps
+    #   if: steps.getversion.outputs.update == 'true'
+    #   run: |
+    #     pip3 install git+https://github.com/packit/wait-for-copr.git@main
 
     - uses: actions/checkout@v4
+      if: steps.getversion.outputs.update == 'true'
       id: checkout
       with:
         repository: $UPSTREAM_MACHINE_OS
         ref: ${{github.base_ref}}
-
-    - name: Warn remote branch
-      if: ${{ failure() }} && steps.checkout.outcome == "failure"
-      run: |
-        echo "::error Upstream branch checkout failed. This may be due to the release branch, not existing upstream."
-        echo "::error If this is the case, push a ${{github.base_ref}} branch in $UPSTREAM_MACHINE_OS, then re-run this task."
+        token: ${{secrets.PODMANBOT_TOKEN}}
 
     - name: Bump version
+      if: steps.getversion.outputs.update == 'true'
       run: |
         echo ${{steps.getversion.outputs.version}}
         sed -i 's/export PODMAN_VERSION=".*"/export PODMAN_VERSION="${{steps.getversion.outputs.version}}"/g' podman-rpm-info-vars.sh
@@ -60,48 +68,58 @@ jobs:
         echo "Updated file:"
         cat podman-rpm-info-vars.sh
 
-    # - name: Check open PRs
-    #   id: checkpr
+    # - name: Wait for COPR
+    #   if: steps.getversion.outputs.update == "true"
     #   run: |
-    #     prs=$(gh pr list \
-    #       --repo $UPSTREAM_MACHINE_OS \
-    #       --head bumpbranch="v${{steps.getversion.outputs.version}}-pr${{github.event.number}}" \
-    #       --state open \
-    #       --json title \
-    #       --jq 'length')
-    #     if ((prs > 0)); then
-    #       echo "SKIPPING: PR already exists. Re-pushing to re-trigger build."
-    #     else
-    #       echo "openpr=true" >> "$GITHUB_OUTPUT"
-    #     fi
-    #   env:
-    #     GH_TOKEN: ${{ secrets.PODMANBOT_TOKEN }}
-    #   - name: Push
-    #     if: >-
-    #         steps.getversion.outputs.notRC == 'true' &&
-    #         steps.checkversion.outputs.needsUpdate == 'true' &&
-    #         steps.checkpr.outputs.prexists == 'false'
-    #     run: |
-    #       # Make committer the user who triggered the action, either through cutting a release or manual trigger
-    #       # GitHub gives everyone a noreply email associated with their account, use that email for the sign-off
-    #       git config --local user.name ${{ github.actor }}
-    #       git config --local user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
-    #       bumpbranch="v${{ steps.getversion.outputs.version }}-pr${{github.event.number}}"
-    #       git checkout -b $bumpbranch
-    #       git add static/data/global.ts
-    #       git commit --signoff -m "Bump Podman to v${{ steps.getversion.outputs.version }}"
-    #       git remote -v
-    #       git remote add podmanbot https://github.com/podmanbot/podman.io
-    #       git push -f podmanbot "+$bumpbranch"
+    #     wait-for-copr \
+    #     --owner packit \
+    #     --project ashley-cui-podman-actions-test-${{github.event.number}} \
+    #     podman \
+    #     ${SHA::9}
 
+    - name: Push
+      if: steps.getversion.outputs.update == 'true'
+      run: |
+        bumpbranch="pr${{github.event.number}}"
+        git checkout -b $bumpbranch
+        git add podman-rpm-info-vars.sh
+        git commit --signoff -m "Bump Podman to v${{ steps.getversion.outputs.version }}"
+        git remote add podmanbot https://github.com/podmanbot/podman-machine-os
+        git push -f podmanbot "$bumpbranch"
 
-    #    - name: Open PR
-    #     if: steps.checkpr.outputs.openpr == 'true'
-    #     run: |
-    #       gh pr create \
-    #         --title "Bump Podman to v${{ steps.getversion.outputs.version }}" \
-    #         --body  "Bump Podman to v${{ steps.getversion.outputs.version }}" \
-    #         --head "podmanbot:$bumpbranch" \
-    #         --base "main" -R $UPSTREAM_MACHINE_OS
-    #     env:
-    #       GH_TOKEN: ${{ secrets.PODMANBOT_TOKEN }}
+    - name: Check open PRs
+      id: checkpr
+      run: |
+        prs=$(gh pr list \
+          --repo $UPSTREAM_MACHINE_OS \
+          --head "pr${{github.event.number}}" \
+          --state open \
+          --json title \
+          --jq 'length')
+        if ((prs > 0)); then
+          echo "SKIPPING: PR already exists. Re-pushed to re-trigger build."
+        else
+          echo "openpr=true" >> "$GITHUB_OUTPUT"
+        fi
+      env:
+        GH_TOKEN: ${{ secrets.PODMANBOT_TOKEN }}
+
+    - name: Open PR
+    if: steps.checkpr.outputs.openpr == 'true'
+    id: pr
+    run: |
+      bumpbranch="pr${{github.event.number}}"
+      uri=` gh pr create \
+        --title "Bump Podman to v${{ steps.getversion.outputs.version }}" \
+        --body  "Bump Podman to v${{ steps.getversion.outputs.version }}" \
+        --head "podmanbot:$bumpbranch" \
+        --base "${{github.base_ref}}" -R $UPSTREAM_MACHINE_OS `
+      echo "uri=$uri" >> "GITHUB_OUTPUT"
+    env:
+      GH_TOKEN: ${{ secrets.PODMANBOT_TOKEN }}
+    - name: comment PR link
+      if: steps.checkpr.outputs.openpr == 'true'
+      uses: thollander/actions-comment-pull-request@v3
+      with:
+        message: |
+          Building images at: ${{ steps.pr.outputs.pr_uri }}
