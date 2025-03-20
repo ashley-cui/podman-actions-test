@@ -25,10 +25,11 @@ jobs:
           # ignore -dev version bumps unless on main
           if [[ ${{github.base_ref}} != "main" ]] && [[ $VERSION == *-dev ]] ; then
             echo "::warn SKIPPING: dev bump not on main"
-          else if [[ ${{github.base_ref}} == *-rhel ]]
+          elif [[ ${{github.base_ref}} == *-rhel ]] ; then
             echo "::warn SKIPPING: rhel branch"
+          else
+            echo "update=true" >> "$GITHUB_OUTPUT"
           fi
-
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: check remote branch
         if: steps.getversion.outputs.update == 'true'
@@ -54,7 +55,7 @@ jobs:
         if: steps.getversion.outputs.update == 'true'
         id: checkout
         with:
-          repository: $UPSTREAM_MACHINE_OS
+          repository: ashley-cui/podman-machine-os
           ref: ${{github.base_ref}}
           token: ${{secrets.PODMANBOT_TOKEN}}
 
@@ -79,6 +80,10 @@ jobs:
       - name: Push
         if: steps.getversion.outputs.update == 'true'
         run: |
+          # Make committer the user who triggered the action, either through cutting a release or manual trigger
+          # GitHub gives everyone a noreply email associated with their account, use that email for the sign-off
+          git config --local user.name ${{ github.actor }}
+          git config --local user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
           bumpbranch="pr${{github.event.number}}"
           git checkout -b $bumpbranch
           git add podman-rpm-info-vars.sh
