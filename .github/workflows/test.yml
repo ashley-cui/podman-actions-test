@@ -33,5 +33,3 @@ jobs:
         uses: thollander/actions-comment-pull-request@v3
         with:
           message: "message3: ${{ steps.pr.outputs.uri }}"
-
-
