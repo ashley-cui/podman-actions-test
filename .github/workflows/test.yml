@@ -1,0 +1,16 @@
+name: "asikdhflkjsd"
+
+on: workflow_dispatch
+
+jobs:
+  somestuff:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get version
+        id: getversion
+        run: echo "somestuff"
+  reuse:
+    needs: somestuff
+    with:
+      print-string: printme
+    uses: ashley-cui/podman-actions-test/.github/workflows/reused.yml@main

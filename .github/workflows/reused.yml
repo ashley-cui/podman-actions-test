@@ -1,0 +1,13 @@
+name: reuse me
+on:
+  workflow_call:
+    inputs:
+      print-string:
+        required: true
+        type: string
+jobs:
+  echo:
+    runs-on: ubuntu-latest
+    steps:
+    - name: echo
+      run: echo ${{ inputs.print-string }}
