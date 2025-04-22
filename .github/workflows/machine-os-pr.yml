@@ -1,14 +1,26 @@
 name: "Machine OS PR"
 
 on:
-  pull_request_target:
-    # prevent action from running on older release-process branches
-    # TODO: remove when we move to new release flow
-    branches:
-      - 'v5.5'
-      - 'main'
-    paths:
-      - 'version/rawversion/version.go'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version to build and upload (e.g. "v9.8.7")'
+        required: true
+      buildonly:
+        description: 'Build only: Do not create release'
+        default: "true"  # 'choice' type requires string value
+        type: choice
+        options:
+          - "true"  # Must be quoted string, boolean value not supported.
+          - "false"
+  # pull_request_target:
+  #   # prevent action from running on older release-process branches
+  #   # TODO: remove when we move to new release flow
+  #   branches:
+  #     - 'v5.5'
+  #     - 'main'
+  #   paths:
+  #     - 'version/rawversion/version.go'
 
 concurrency:
   # Cancel other in-progress runs on re-pushes

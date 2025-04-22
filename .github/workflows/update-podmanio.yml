@@ -1,8 +1,8 @@
 name: Update Podman version on Podman.io
 
 on:
-  release:
-    types: [published]
+  # release:
+  #   types: [published]
   workflow_dispatch:
     inputs:
       version:
