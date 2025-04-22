@@ -1,0 +1,79 @@
+name: Bump to -dev version
+on:
+  push:
+    tags:
+      - '*'
+jobs:
+  bump:
+    name: Bump
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          token: ${{ secrets.PODMANBOT_TOKEN }}
+      - name: Bump
+        id: bump
+        run: |
+          ref=${{ github.ref_name }}
+          version=${ref#v}
+          if [[ $version == *-rc* ]]; then
+              echo "is a rc - bumping z down to dev"
+              devbump="${version%-*}-dev"
+          else
+              echo "bumping z up to dev"
+              arr=($(echo "$version" | tr . '\n'))
+              arr[2]=$((${arr[2]}+1))
+              devbump="$(IFS=. ; echo "${arr[*]}")-dev"
+          fi
+
+          sed -i "s/const RawVersion = ".*"/const RawVersion = "${devbump}"/g" version/rawversion/version.go
+
+          echo "devbump=$devbump" >> $GITHUB_OUTPUT
+      - name: Check open PRs
+        id: checkpr
+        env:
+          GH_TOKEN: ${{ secrets.PODMANBOT_TOKEN }}
+        run: |
+          prs=$(gh pr list \
+            --repo ${{ github.repository }} \
+            --head bump-${{ steps.bump.outputs.devbump }} \
+            --state open \
+            --json title \
+            --jq 'length')
+          if ((prs > 0)); then
+            echo "SKIPPING: PR already exists to update from ${{ github.ref_name }}."
+          else
+            echo "prexists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Push
+        if: steps.checkpr.outputs.prexists == 'false'
+        run: |
+          # Make committer the user who triggered the action, either through cutting a release or manual trigger
+          # GitHub gives everyone a noreply email associated with their account, use that email for the sign-off
+          git config --local user.name ${{ github.actor }}
+          git config --local user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          bumpbranch="bump-${{ steps.bump.outputs.devbump }}"
+          git checkout -b $bumpbranch
+          git add version/rawversion/version.go
+          git commit --signoff -m "Bump Podman to v${{ steps.getversion.bump.devbump }}"
+          git remote add podmanbot https://github.com/podmanbot/podman
+          git push -f podmanbot "$bumpbranch"
+
+      - name: Open PR
+        if: steps.checkpr.outputs.prexists == 'false'
+        id: pr
+        run: |
+          bumpbranch="bump-${{ steps.bump.outputs.devbump }}"
+          ref=${{ github.ref_name }}
+          version=${ref#v}
+          base="${version%.*}"
+          gh pr create \
+            --title "Bump Podman to v${{ steps.getversion.outputs.version }}" \
+            --body  "Bump Podman to v${{ steps.getversion.outputs.version }}" \
+            --head "podmanbot:$bumpbranch" \
+            --base $base
+            --repo ${{ github.repository }}
+        env:
+          GH_TOKEN: ${{ secrets.PODMANBOT_TOKEN }}
+
