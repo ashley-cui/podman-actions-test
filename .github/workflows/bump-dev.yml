@@ -5,7 +5,7 @@ on:
       - '*'
 permissions:
   contents: write
-
+  pull-requests: write
 jobs:
   bump:
     name: Bump to -dev
@@ -107,7 +107,7 @@ jobs:
         id: bump
         if: steps.check.outputs.bump == 'true'
         run: |
-          ref={{ github.ref_name }}
+          ref=${{ github.ref_name }}
           releasevers=${ref#v}
 
           arr=($(echo "$releasevers" | tr . '\n'))
@@ -123,7 +123,7 @@ jobs:
         if: steps.check.outputs.bump == 'true'
         run: |
           # Make committer the user who triggered the action, either through cutting a release or manual trigger
-          # GitHub gives everyone a noreply email associated with their account, use that email for the sign-off
+          # GitHub gisves everyone a noreply email associated with their account, use that email for the sign-off
           git config --local user.name ${{ github.actor }}
           git config --local user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
           bumpbranch="bump-main-${{ steps.bump.outputs.devbump }}"
