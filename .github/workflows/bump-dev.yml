@@ -70,13 +70,12 @@ jobs:
         run: |
           bumpbranch="bump-${{ steps.bump.outputs.devbump }}"
           ref=${{ github.ref_name }}
-          version=${ref#v}
-          base="${version%.*}"
+          base=${ref%.*}
           gh pr create \
-            --title "Bump Podman to v${{ steps.getversion.outputs.version }}" \
-            --body  "Bump Podman to v${{ steps.getversion.outputs.version }}" \
-            --head "podmanbot:$bumpbranch" \
-            --base $base
+            --title "Bump Podman to v${{ steps.bump.outputs.devbump }}" \
+            --body  "Bump Podman to v${{ steps.bump.outputs.devbump }}" \
+            --head "ashley-cui:$bumpbranch" \
+            --base "$base" \
             --repo ${{ github.repository }}
         # env:
         #   GH_TOKEN: ${{ secrets.PODMANBOT_TOKEN }}
@@ -157,7 +156,7 @@ jobs:
           gh pr create \
             --title "Bump main to v${{ steps.bump.outputs.devbump }}" \
             --body  "$body" \
-            --head "podmanbot:$bumpbranch" \
+            --head "ashley-cui:$bumpbranch" \
             --base "main" \
             --repo ${{ github.repository }}
         # env:
