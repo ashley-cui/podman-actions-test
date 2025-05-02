@@ -30,7 +30,7 @@ jobs:
               devbump="$(IFS=. ; echo "${arr[*]}")-dev"
           fi
 
-          sed -i "s/const RawVersion = ".*"/const RawVersion = "${devbump}"/g" version/rawversion/version.go
+          sed -i "s/const RawVersion = ".*"/const RawVersion = \"${devbump}\"/g" version/rawversion/version.go
 
           echo "devbump=$devbump" >> $GITHUB_OUTPUT
       - name: Push
@@ -42,7 +42,7 @@ jobs:
           bumpbranch="bump-${{ steps.bump.outputs.devbump }}"
           git checkout -b $bumpbranch
           git add version/rawversion/version.go
-          git commit --signoff -m "Bump Podman to v${{ steps.getversion.bump.devbump }}"
+          git commit --signoff -m "Bump Podman to v${{ steps.bump.outputs.devbump }}"
           # git remote add podmanbot https://github.com/podmanbot/podman
           git remote add podmanbot https://github.com/ashley-cui/podman-actions-test
           git push -f podmanbot "$bumpbranch"
@@ -155,8 +155,6 @@ jobs:
             --body  "$body" \
             --head "podmanbot:$bumpbranch" \
             --base "main" \
-            --repo $UPSTREAM_MACHINE_OS
+            --repo ${{ github.repository }}
         # env:
         #   GH_TOKEN: ${{ secrets.PODMANBOT_TOKEN }}
-
-
