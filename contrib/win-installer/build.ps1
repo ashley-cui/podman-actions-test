@@ -12,8 +12,12 @@
     into an MSI installer.
 
 .PARAMETER Version
-    Podman version to build (e.g., "5.6.2" or "v5.6.2"). This will be the
-    version of the MSI installer to be built.
+    Podman version to build (e.g., "5.6.2" or "v5.6.2"). With -Dev, also accepts
+    branch-sha format (e.g., "main-abc1234"). This will be the version of the MSI.
+
+.PARAMETER Dev
+    Allow non-release version format (e.g., "main-abc1234"). If not set, Version
+    must match semantic versioning (major.minor.patch with optional -suffix).
 
 .PARAMETER Architecture
     Target architecture for the installer. Valid values: 'amd64', 'arm64'.
@@ -46,6 +50,10 @@
         -LocalReleaseDirPath .\current
     Build an arm64 MSI from a local release directory
 
+.EXAMPLE
+    .\build.ps1 -Version main-abc1234 -Dev -LocalReleaseDirPath .\current
+    Build an MSI for a dev build (branch-sha version format)
+
 .NOTES
     Requirements:
       - .NET SDK (https://dotnet.microsoft.com/download)
@@ -64,8 +72,10 @@ param(
         HelpMessage = 'Podman version to build (MSI installer version)'
     )]
     [ValidateNotNullOrEmpty()]
-    [ValidatePattern('^v?([0-9]+\.[0-9]+\.[0-9]+)(-.*)?$')]
     [string]$Version,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$Dev,
 
     [Parameter(
         Mandatory = $false,
@@ -92,6 +102,18 @@ param(
 )
 
 . $PSScriptRoot\utils.ps1
+
+$semverPattern = '^v?([0-9]+\.[0-9]+\.[0-9]+)(-.*)?$'
+$devPattern = '^[a-zA-Z0-9_.-]+-[a-f0-9]+$'
+if ($Dev) {
+    if ($Version -notmatch $semverPattern -and $Version -notmatch $devPattern) {
+        throw "Version '$Version' is not valid. With -Dev, use semver (e.g. 5.6.2) or branch-sha (e.g. main-abc1234)."
+    }
+} else {
+    if ($Version -notmatch $semverPattern) {
+        throw "Version '$Version' does not match semantic versioning (e.g. 5.6.2 or v5.6.2). Use -Dev to allow branch-sha format (e.g. main-abc1234)."
+    }
+}
 
 # Strip leading 'v' from version if present
 $Version = $Version.TrimStart('v')
