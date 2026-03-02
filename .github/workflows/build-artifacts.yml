@@ -114,6 +114,11 @@ jobs:
     env:
       FETCH_BASE_URL: ${{ github.server_url }}/${{ github.repository }}
     steps:
+    - name: Checkout Podman
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ inputs.version }}
+        persist-credentials: false
     - name: Determine version
       id: getversion
       env:
@@ -123,13 +128,16 @@ jobs:
         if ($version.Length -gt 0 -and $version[0] -eq "v") {
           $version = $version.Substring(1)
         }
-        $isSemver = $version -match '^[0-9]+\.[0-9]+\.[0-9]+(-.*)?$'
+        # windows/wix reqires a legit version number, so if the ref is a branch and not a version, use rawversion
+        if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(-.*)?$') {
+          $raw = Get-Content -Path "version\rawversion\version.go" -Raw
+          if ($raw -notmatch 'RawVersion\s*=\s*"([^"]+)"') {
+            Write-Error "Could not parse RawVersion from version/rawversion/version.go"
+            exit 1
+          }
+          $version = $matches[1].TrimStart('v')
+        }
         Write-Output "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-        Write-Output "is_dev=$(-not $isSemver)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-    - name: Checkout Podman
-      uses: actions/checkout@v6
-      with:
-        persist-credentials: false
     - name: Download Windows zip artifact
       uses: actions/download-artifact@v7
       with:
@@ -171,17 +179,11 @@ jobs:
       env:
         PODMAN_ARCH: ${{ matrix.arch }}
         VERSION: ${{ steps.getversion.outputs.version }}
-        IS_DEV: ${{ steps.getversion.outputs.is_dev }}
       run: |
-        if ("${env:IS_DEV}" -eq "true") {
-          contrib\win-installer\build.ps1 -Version "${env:VERSION}" -Dev `
+        contrib\win-installer\build.ps1 `
+            -Version "${env:VERSION}" `
             -LocalReleaseDirPath "${env:GITHUB_WORKSPACE}\release-artifacts" `
             -Architecture "${env:PODMAN_ARCH}"
-        } else {
-          contrib\win-installer\build.ps1 -Version "${env:VERSION}" `
-            -LocalReleaseDirPath "${env:GITHUB_WORKSPACE}\release-artifacts" `
-            -Architecture "${env:PODMAN_ARCH}"
-        }
         Exit $LASTEXITCODE
     - name: Display structure of built files
       run: |
